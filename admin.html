@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
-  <title>관리자: 급식표 업로드</title>
+  <title>관리자: 급식표 업로드 (압축 버전)</title>
   <style>
     body { max-width:480px; margin:2em auto; font-family:sans-serif; }
     .field { margin-bottom:1em; }
@@ -17,8 +17,9 @@
   </style>
 </head>
 <body>
-  <h1>🏫 급식판 관리자</h1>
+  <h1>🏫 급식판 관리자 (압축 기능 포함)</h1>
 
+  <!-- 설정 저장/삭제 UI -->
   <div class="field">
     <label for="imKey">IMGBB API Key</label>
     <input type="password" id="imKey" placeholder="여기에 붙여넣기">
@@ -50,9 +51,9 @@
 
   <hr>
 
+  <!-- 이미지 선택 + 카메라 호출 -->
   <div class="field">
     <label for="fileInput">새 급식표 이미지 선택</label>
-    <!-- capture="environment" 을 주면 후면 카메라, capture="user" 면 셀카용 카메라 호출 -->
     <input type="file" id="fileInput" accept="image/*" capture="environment">
   </div>
 
@@ -62,7 +63,7 @@
   <div id="status"></div>
 
   <script>
-    // —— 로컬스토리지 키 이름 정의 —— 
+    // — 로컬스토리지 키 이름 —
     const LS_KEYS = {
       IMGBB:   'admin.imgbbKey',
       GITHUB:  'admin.githubToken',
@@ -71,7 +72,7 @@
       PATH:    'admin.filePath'
     };
 
-    // —— 요소 참조 —— 
+    // — 요소 참조 —
     const imKeyIn    = document.getElementById('imKey');
     const ghTokenIn  = document.getElementById('ghToken');
     const ownerIn    = document.getElementById('repoOwner');
@@ -86,154 +87,159 @@
     const previewDiv = document.getElementById('preview');
     const statusDiv  = document.getElementById('status');
 
-    // —— 로컬스토리지 로드 —— 
+    // — 설정 로드/저장/삭제 함수 —
     function loadSettings() {
       const im = localStorage.getItem(LS_KEYS.IMGBB);
       const gh = localStorage.getItem(LS_KEYS.GITHUB);
       const ow = localStorage.getItem(LS_KEYS.OWNER);
       const nm = localStorage.getItem(LS_KEYS.NAME);
       const pt = localStorage.getItem(LS_KEYS.PATH);
-
-      if (im) {
-        imKeyIn.value = im;
-        imStatus.textContent = '저장됨';
-      }
-      if (gh) {
-        ghTokenIn.value = gh;
-        ghStatus.textContent = '저장됨';
-      }
+      if (im) { imKeyIn.value = im; imStatus.textContent = '저장됨'; }
+      if (gh) { ghTokenIn.value = gh; ghStatus.textContent = '저장됨'; }
       if (ow) ownerIn.value = ow;
       if (nm) nameIn.value = nm;
       if (pt) pathIn.value = pt;
     }
-
-    // —— 로컬스토리지 저장 —— 
     saveBtn.onclick = () => {
-      const im = imKeyIn.value.trim();
-      const gh = ghTokenIn.value.trim();
-      if (!im || !gh) {
-        alert('두 키를 모두 입력하세요.');
-        return;
+      const im = imKeyIn.value.trim(), gh = ghTokenIn.value.trim();
+      if (!im || !gh || !ownerIn.value.trim() || !nameIn.value.trim()) {
+        return alert('모든 설정을 입력 후 저장하세요.');
       }
-      localStorage.setItem(LS_KEYS.IMGBB, im);
-      localStorage.setItem(LS_KEYS.GITHUB, gh);
-      localStorage.setItem(LS_KEYS.OWNER, ownerIn.value.trim());
-      localStorage.setItem(LS_KEYS.NAME, nameIn.value.trim());
-      localStorage.setItem(LS_KEYS.PATH, pathIn.value.trim());
-      imStatus.textContent = '저장됨';
-      ghStatus.textContent = '저장됨';
-      alert('키와 정보가 로컬에 저장되었습니다.');
+      localStorage.setItem(LS_KEYS.IMGBB,   im);
+      localStorage.setItem(LS_KEYS.GITHUB,  gh);
+      localStorage.setItem(LS_KEYS.OWNER,   ownerIn.value.trim());
+      localStorage.setItem(LS_KEYS.NAME,    nameIn.value.trim());
+      localStorage.setItem(LS_KEYS.PATH,    pathIn.value.trim());
+      imStatus.textContent = ghStatus.textContent = '저장됨';
+      alert('설정이 저장되었습니다.');
     };
-
-    // —— 로컬스토리지 삭제 —— 
     clearBtn.onclick = () => {
-      if (!confirm('정말 모두 삭제하시겠습니까?')) return;
+      if (!confirm('설정을 모두 삭제하시겠습니까?')) return;
       Object.values(LS_KEYS).forEach(k => localStorage.removeItem(k));
       imKeyIn.value = ghTokenIn.value = ownerIn.value = nameIn.value = '';
       pathIn.value = 'config.json';
       imStatus.textContent = ghStatus.textContent = '';
-      alert('로컬에 저장된 키 및 정보가 삭제되었습니다.');
+      alert('모든 설정이 삭제되었습니다.');
     };
 
-    // —— 메타데이터 제거 함수 (Canvas) —— 
-    function stripMetadata(file) {
+    // — 이미지 처리: 메타데이터 제거 + 리사이즈 + 압축 —
+    /**
+     * @param {File} file
+     * @param {object} options
+     * @param {number} options.maxWidth
+     * @param {number} options.maxHeight
+     * @param {number} options.quality
+     * @returns {Promise<string>} Base64 문자열 (데이터만)
+     */
+    function processAndCompressImage(file, {
+      maxWidth = 1024,
+      maxHeight = 1024,
+      quality   = 0.7
+    } = {}) {
       return new Promise((resolve, reject) => {
-        const r = new FileReader();
-        r.onload = () => {
+        const reader = new FileReader();
+        reader.onload = () => {
           const img = new Image();
           img.onload = () => {
-            const c = document.createElement('canvas');
-            c.width = img.width;
-            c.height = img.height;
-            c.getContext('2d').drawImage(img,0,0);
-            c.toBlob(blob => {
+            let { width, height } = img;
+            const ratio = Math.min(maxWidth/width, maxHeight/height, 1);
+            width  = Math.round(width  * ratio);
+            height = Math.round(height * ratio);
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+
+            canvas.toBlob(blob => {
+              if (!blob) return reject(new Error('Blob 생성 실패'));
               const r2 = new FileReader();
               r2.onload = () => resolve(r2.result.split(',')[1]);
               r2.onerror = reject;
               r2.readAsDataURL(blob);
-            }, 'image/jpeg', 0.9);
+            }, 'image/jpeg', quality);
           };
           img.onerror = reject;
-          img.src = r.result;
+          img.src = reader.result;
         };
-        r.onerror = reject;
-        r.readAsDataURL(file);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
       });
     }
 
-    // —— imgbb 업로드 —— 
+    // — imgbb 업로드 —
     async function uploadToImgbb(b64) {
       const key = localStorage.getItem(LS_KEYS.IMGBB);
       const form = new FormData();
       form.append('key', key);
       form.append('image', b64);
-      const res = await fetch('https://api.imgbb.com/1/upload', {
-        method: 'POST', body: form
-      });
+      const res = await fetch('https://api.imgbb.com/1/upload', { method:'POST', body:form });
       const js = await res.json();
-      if (!js.success) throw new Error('imgbb error: '+JSON.stringify(js));
+      if (!js.success) throw new Error('imgbb 오류: '+JSON.stringify(js));
       return js.data.url;
     }
 
-    // —— GitHub config.json 업데이트 —— 
+    // — GitHub config.json 업데이트 —
     async function updateGitHubConfig(newUrl) {
       const token = localStorage.getItem(LS_KEYS.GITHUB);
       const owner = localStorage.getItem(LS_KEYS.OWNER);
       const repo  = localStorage.getItem(LS_KEYS.NAME);
       const path  = localStorage.getItem(LS_KEYS.PATH);
 
-      // 기존 SHA 가져오기
+      // 기존 SHA 조회
       const getRes = await fetch(
-        `https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
-        headers: { Authorization: `token ${token}` }
-      });
-      if (!getRes.ok) throw new Error('GitHub GET error: '+getRes.status);
+        `https://api.github.com/repos/${owner}/${repo}/contents/${path}`,
+        { headers: { Authorization: `token ${token}` } }
+      );
+      if (!getRes.ok) throw new Error('GitHub GET 실패: '+getRes.status);
       const getJs = await getRes.json();
-      const sha   = getJs.sha;
 
-      // 새 config.json 만들기
+      // 새 config.json 생성
       const newCfg = JSON.stringify({ imageUrl: newUrl }, null, 2);
       const content = btoa(unescape(encodeURIComponent(newCfg)));
 
       // PUT 요청
       const putRes = await fetch(
-        `https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `token ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          message: "Update menu image via admin UI",
-          content: content,
-          sha: sha
-        })
-      });
+        `https://api.github.com/repos/${owner}/${repo}/contents/${path}`,
+        {
+          method: 'PUT',
+          headers: {
+            'Authorization': `token ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            message: "Update menu image via admin UI",
+            content: content,
+            sha: getJs.sha
+          })
+        }
+      );
       if (!putRes.ok) {
         const err = await putRes.json();
-        throw new Error('GitHub PUT error: '+JSON.stringify(err));
+        throw new Error('GitHub PUT 실패: '+JSON.stringify(err));
       }
       return putRes.json();
     }
 
-    // —— 메인 업로드 흐름 —— 
+    // — 메인 업로드 흐름 —
     uploadBtn.onclick = async () => {
       const file = fileIn.files[0];
       if (!file) return alert('이미지를 선택해주세요.');
-      statusDiv.textContent = '⌛ 처리중…';
-      previewDiv.innerHTML = statusDiv.textContent;
+      statusDiv.textContent = '⌛ 처리중…'; previewDiv.innerHTML = '';
 
       try {
-        // 1) 메타데이터 제거 및 미리보기
-        const b64 = await stripMetadata(file);
-        previewDiv.innerHTML = `<h3>미리보기</h3>
+        // 1) 압축 처리 및 미리보기
+        const b64 = await processAndCompressImage(file, {
+          maxWidth: 1024, maxHeight: 1024, quality: 0.7
+        });
+        previewDiv.innerHTML = `<h3>미리보기 (압축됨)</h3>
                                 <img src="data:image/jpeg;base64,${b64}">`;
 
         // 2) imgbb 업로드
         statusDiv.textContent = '📤 imgbb 업로드…';
         const url = await uploadToImgbb(b64);
 
-        // 3) GitHub Pages 업데이트
+        // 3) GitHub 반영
         statusDiv.textContent = '🔄 GitHub에 반영 중…';
         await updateGitHubConfig(url);
 
@@ -246,7 +252,7 @@
       }
     };
 
-    // —— 초기 로드 시 세팅 불러오기 —— 
+    // 초기 설정 로드
     window.addEventListener('DOMContentLoaded', loadSettings);
   </script>
 </body>
