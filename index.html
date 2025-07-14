@@ -21,18 +21,12 @@
 
 </head>
 <body>
-  <h1>오늘의 급식 메뉴</h1>
-  <img id="menu" alt="급식 식단표">
-
+  <h1>오늘의 급식</h1>
+  <img id="menu" alt="급식 식단표" src="menu.jpg?t=0">
   <script>
-    // config.json 에서 URL 불러오기
-    fetch('config.json')
-      .then(res => res.json())
-      .then(cfg => {
-        const img = document.getElementById('menu');
-        img.src = cfg.imageUrl + '?t=' + Date.now();  // 캐시 우회
-      })
-      .catch(console.error);
+    // 캐시 우회용 타임스탬프를 붙여서 매 로드마다 최신 이미지 표시
+    const img = document.getElementById('menu');
+    img.src = 'menu.jpg?t=' + Date.now();
   </script>
 </body>
 </html>
